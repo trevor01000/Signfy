@@ -71,5 +71,8 @@ dependencies {
 
    implementation ("com.google.mediapipe:tasks-vision:0.10.14")
 
+    implementation("androidx.compose.material:material-icons-extended:1.6.8")
+
+
 
 }

@@ -16,10 +16,19 @@ class HandOverlayView @JvmOverloads constructor(
     private var hands: List<List<NormalizedLandmark>> = emptyList()
     private var mirrorX: Boolean = false
     private var rotation: Int = 0
+    private var gestureText: String? = null
 
     private val paint = Paint().apply {
         color = Color.RED
         strokeWidth = 8f
+        style = Paint.Style.FILL
+        isAntiAlias = true
+    }
+
+    private val textPaint = Paint().apply {
+        color = Color.GREEN
+        textSize = 60f
+        isAntiAlias = true
     }
 
     fun setLandmarks(
@@ -33,8 +42,14 @@ class HandOverlayView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun setGesture(gesture: String) {
+        this.gestureText = gesture
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
 
         for (hand in hands) {
             for (landmark in hand) {
@@ -45,13 +60,22 @@ class HandOverlayView @JvmOverloads constructor(
                     mirrorX
                 )
 
-                val px = nx * width
+                val px = (1 - nx) * width
                 val py = (1 - ny) * height
 
                 canvas.drawCircle(px, py, 10f, paint)
             }
         }
+
+
+        gestureText?.let {
+            val textWidth = textPaint.measureText(it)
+            val x = (width - textWidth) / 2
+            val y = height - 380f
+            canvas.drawText(it, x, y, textPaint)
+        }
     }
+
 
     private fun transformPoint(
         xNorm: Float,

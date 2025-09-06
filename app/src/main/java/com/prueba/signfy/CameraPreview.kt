@@ -1,23 +1,12 @@
 package com.prueba.signfy
 
-import android.graphics.ImageFormat
-import android.graphics.YuvImage
-
-
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Path
-import android.view.View
+import android.graphics.*
+import android.util.Log
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
+import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.Composable
@@ -26,56 +15,55 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import android.graphics.Bitmap
-import android.util.Log
-import com.google.mediapipe.formats.proto.LandmarkProto
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.MPImage
-import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
 import com.prueba.signfy.ui.theme.HandOverlayView
+import com.prueba.signfy.gestures.GestureRecognizer
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
 import java.util.concurrent.Executors
-
-
+import androidx.compose.runtime.key
 
 @SuppressLint("UnsafeOptInUsageError")
 @Composable
-
 fun CameraPreview(
     modifier: Modifier = Modifier,
     useFrontCamera: Boolean = true
 ) {
     val context = LocalContext.current
 
-    AndroidView(
-        modifier = modifier,
-        factory = { ctx ->
-            val container = FrameLayout(ctx)
-            val previewView = PreviewView(ctx).apply {
-                layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
+    key(useFrontCamera) {
+        AndroidView(
+            modifier = modifier,
+            factory = { ctx ->
+                val container = FrameLayout(ctx)
+                val previewView = PreviewView(ctx).apply {
+                    layoutParams = FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                }
+                val overlay = HandOverlayView(ctx)
+
+                container.addView(previewView)
+                container.addView(
+                    overlay,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
                 )
+
+                startCamera(ctx, previewView, overlay, useFrontCamera)
+
+                container
             }
-            val overlay = HandOverlayView(ctx)
-
-            container.addView(previewView)
-            container.addView(
-                overlay,
-                FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            )
-
-            startCamera(ctx, previewView, overlay, useFrontCamera)
-
-            container
-        }
-    )
+        )
+    }
 }
 
 private fun startCamera(
@@ -113,12 +101,25 @@ private fun startCamera(
                     Log.d("HandLandmarks", "Detectadas ${it.handednesses().size} manos")
 
                     val hands = it.landmarks()
+
+
                     overlay.post {
                         overlay.setLandmarks(
                             hands,
-                            mirrorX = false,
-                            rotation = lastRotationDegrees // ✅ usamos la última rotación guardada
+                            mirrorX = useFrontCamera,
+                            rotation = lastRotationDegrees
                         )
+                    }
+
+                    val gestures = hands.map { hand -> GestureRecognizer.recognize(hand) }
+                    val gestureText = if (gestures.isEmpty()) "" else gestures.joinToString("  |  ")
+                    overlay.post {
+                        overlay.setGesture(gestureText)
+                    }
+
+                    for (hand in hands) {
+                        val gesture = GestureRecognizer.recognize(hand)
+                        Log.d("Gesture", "Detectado: $gesture")
                     }
                 }
             }
@@ -128,14 +129,12 @@ private fun startCamera(
 
         imageAnalysis.setAnalyzer(executor) { imageProxy: ImageProxy ->
             try {
-                // ✅ guardamos la rotación de este frame
                 lastRotationDegrees = imageProxy.imageInfo.rotationDegrees
 
                 val bitmap: Bitmap = imageProxyToBitmap(imageProxy)
                 val mpImage: MPImage = BitmapImageBuilder(bitmap).build()
 
                 handLandmarker.detectAsync(mpImage, System.currentTimeMillis())
-
             } catch (e: Exception) {
                 Log.e("CameraPreview", "Error procesando frame", e)
             } finally {
@@ -168,18 +167,16 @@ fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap {
 
     val nv21 = ByteArray(ySize + uSize + vSize)
 
-    // Y
+
     yBuffer.get(nv21, 0, ySize)
 
-    // VU (NV21 format)
     vBuffer.get(nv21, ySize, vSize)
     uBuffer.get(nv21, ySize + vSize, uSize)
 
     val yuvImage = YuvImage(nv21, ImageFormat.NV21, imageProxy.width, imageProxy.height, null)
     val out = ByteArrayOutputStream()
-    yuvImage.compressToJpeg(android.graphics.Rect(0, 0, imageProxy.width, imageProxy.height), 100, out)
+    yuvImage.compressToJpeg(Rect(0, 0, imageProxy.width, imageProxy.height), 100, out)
     val imageBytes = out.toByteArray()
 
-    return android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+    return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
 }
-
